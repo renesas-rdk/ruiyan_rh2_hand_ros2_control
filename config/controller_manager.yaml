@@ -1,0 +1,18 @@
+# Controller Manager Configuration for Ruiyan RH2 Hand
+# This file configures the controller manager and default controllers
+
+controller_manager:
+  ros__parameters:
+    # Update rate for the controller manager
+    # Adjust based on communication interface capabilities
+    update_rate: 50  # Hz (20ms cycle time)
+
+    # Available controller types
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    ruiyan_rh2_hand_joint_trajectory_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    ruiyan_rh2_hand_joint_position_controller:
+      type: position_controllers/JointGroupPositionController
