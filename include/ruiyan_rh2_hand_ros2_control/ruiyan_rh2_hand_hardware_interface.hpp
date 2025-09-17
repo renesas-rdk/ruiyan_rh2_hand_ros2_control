@@ -38,7 +38,7 @@ public:
   RCLCPP_SHARED_PTR_DEFINITIONS(RuiyanRH2HandHardwareInterface)
 
   RUIYAN_RH2_HAND_ROS2_CONTROL_PUBLIC
-  CallbackReturn on_init(const hardware_interface::HardwareInfo & info) override;
+  CallbackReturn on_init(const hardware_interface::HardwareComponentInterfaceParams & params) override;
 
   RUIYAN_RH2_HAND_ROS2_CONTROL_PUBLIC
   std::vector<hardware_interface::StateInterface> export_state_interfaces() override;

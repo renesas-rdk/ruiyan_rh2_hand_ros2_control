@@ -30,9 +30,9 @@ namespace ruiyan_rh2_hand_ros2_control
 {
 
 hardware_interface::CallbackReturn RuiyanRH2HandHardwareInterface::on_init(
-  const hardware_interface::HardwareInfo & info)
+  const hardware_interface::HardwareComponentInterfaceParams & params)
 {
-  if (hardware_interface::SystemInterface::on_init(info) != CallbackReturn::SUCCESS) {
+  if (hardware_interface::SystemInterface::on_init(params) != CallbackReturn::SUCCESS) {
     return CallbackReturn::ERROR;
   }
 
