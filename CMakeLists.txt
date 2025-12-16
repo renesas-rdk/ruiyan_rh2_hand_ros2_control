@@ -12,12 +12,29 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+include_directories(include)
+include_directories(lib)
+
+
+find_library(RUIYAN_SRC_LIB
+    NAMES RyhandArm64
+    PATHS ${CMAKE_CURRENT_SOURCE_DIR}/lib
+)
+
+
 # Find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
+
+
+# Ensure library files are found
+if (NOT RUIYAN_SRC_LIB)
+    message(FATAL_ERROR "library Path: ${CMAKE_CURRENT_SOURCE_DIR}/lib not found!")
+endif()
+message(STATUS "library found! ${RUIYAN_SRC_LIB}")
 
 # Hardware interface library
 add_library(${PROJECT_NAME}_hardware_interface SHARED
