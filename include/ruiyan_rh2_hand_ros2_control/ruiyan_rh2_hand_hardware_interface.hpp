@@ -15,11 +15,11 @@
 // be subject to different terms.
 // ********************************************************************************************************************
 #pragma once
-
 #include <array>
 #include <cstdint>
 #include <vector>
 
+#include "agilex_piper_controller/can_interface.hpp"
 #include "hardware_interface/handle.hpp"
 #include "hardware_interface/hardware_info.hpp"
 #include "hardware_interface/system_interface.hpp"
@@ -28,6 +28,19 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/state.hpp"
 #include "ruiyan_rh2_hand_ros2_control/visibility_control.hpp"
+#include "ryhandlib.h"
+#include "stdbool.h"
+
+extern "C" {
+#include "ryhandlib.h"
+}
+#ifdef OK
+#undef OK
+#endif
+
+#ifdef ERROR
+#undef ERROR
+#endif
 
 namespace ruiyan_rh2_hand_ros2_control
 {
@@ -38,7 +51,8 @@ public:
   RCLCPP_SHARED_PTR_DEFINITIONS(RuiyanRH2HandHardwareInterface)
 
   RUIYAN_RH2_HAND_ROS2_CONTROL_PUBLIC
-  CallbackReturn on_init(const hardware_interface::HardwareComponentInterfaceParams & params) override;
+  CallbackReturn on_init(
+    const hardware_interface::HardwareComponentInterfaceParams & params) override;
 
   RUIYAN_RH2_HAND_ROS2_CONTROL_PUBLIC
   std::vector<hardware_interface::StateInterface> export_state_interfaces() override;
@@ -63,6 +77,19 @@ public:
 private:
   // Communication parameters
   int hand_id_;
+  std::string can_interface_name_;  // e.g., "can0"
+
+  static std::unique_ptr<agilex::piper::CanInterface> can_interface_;  // CAN interface
+
+  static RyCanServoBus_t stuServoCan;
+  static CanMsg_t stuListenMsg[40];
+  static ServoData_t sutServoDataW[15];
+  static ServoData_t sutServoDataR[15];
+  volatile s16_t uwTick;
+
+  static void CallBck0(CanMsg_t stuMsg, void * para);
+  static s8_t BusWrite(CanMsg_t stuMsg);
+  static bool bus_send_message(const CanMsg_t & msg);
 
   // Hand specifications
   static constexpr uint8_t NUM_JOINTS = 6;
@@ -84,6 +111,9 @@ private:
   void disconnect_from_hand();
   bool read_joint_positions(std::vector<double> & positions);
   bool write_joint_commands(const std::vector<double> & commands);
+  bool open_can_socket();
+  bool init_servo_can_system();
+  void parse_can_frame(agilex::piper::CanFrameMsg & frame);
 
   // Utility functions
   void enforce_joint_limits();

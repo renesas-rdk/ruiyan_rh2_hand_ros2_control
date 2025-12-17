@@ -28,6 +28,7 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
+find_package(agilex_piper_controller REQUIRED)
 
 
 # Ensure library files are found
@@ -51,6 +52,7 @@ ament_target_dependencies(${PROJECT_NAME}_hardware_interface
   rclcpp
   rclcpp_lifecycle
   pluginlib
+  agilex_piper_controller
 )
 
 # Install library

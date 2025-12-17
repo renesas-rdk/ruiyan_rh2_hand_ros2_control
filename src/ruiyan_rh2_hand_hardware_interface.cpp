@@ -36,9 +36,16 @@ hardware_interface::CallbackReturn RuiyanRH2HandHardwareInterface::on_init(
     return CallbackReturn::ERROR;
   }
 
-  // Initialize hand ID parameter
+  // Initialize parameters
+  can_interface_name_ = info_.hardware_parameters["can_interface"];
   hand_id_ = std::stoi(
     info_.hardware_parameters.count("hand_id") ? info_.hardware_parameters.at("hand_id") : "1");
+
+  // Define the CAN frame callback
+  auto callback = [this](agilex::piper::CanFrameMsg & frame) { this->parse_can_frame(frame); };
+
+  can_interface_ =
+    std::make_unique<agilex::piper::CanInterface>(can_interface_name_, 1000000, callback);
 
   RCLCPP_INFO(
     rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "Initialized with Hand ID: %d", hand_id_);
@@ -201,7 +208,19 @@ bool RuiyanRH2HandHardwareInterface::connect_to_hand()
   // - CAN bus initialization
   // - Network socket connection
   // - Proprietary protocol initialization
+  if (!open_can_socket()) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
+      "Failed to open CAN socket on interface: %s", can_interface_name_.c_str());
+    return false;
+  }
 
+  if (init_servo_can_system()) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
+      "Failed to open CAN socket on interface: %s", can_interface_name_.c_str());
+    return false;
+  }
   RCLCPP_WARN(
     rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
     "TODO: Implement connect_to_hand() for Hand ID: %d", hand_id_);
@@ -210,13 +229,154 @@ bool RuiyanRH2HandHardwareInterface::connect_to_hand()
   return true;
 }
 
+void RuiyanRH2HandHardwareInterface::parse_can_frame(agilex::piper::CanFrameMsg & frame)
+{
+  // Convert agilex::piper::CanFrameMsg to CanMsg_t
+  // TODO: Because using the can_interface from agilex_piper_controller, need to be apdapted to Ruiyan's CanMsg_t
+  CanMsg_t stuMsg;
+
+  stuMsg.ulId = frame.arbitration_id;
+  stuMsg.ucLen = frame.dlc;
+  std::memcpy(stuMsg.pucDat, frame.data, frame.dlc);
+
+  RyCanServoLibRcvMsg(&stuServoCan, stuMsg);
+}
+
+bool RuiyanRH2HandHardwareInterface::init_servo_can_system()
+{
+  // Reset stuServoCan content
+  memset(&stuServoCan, 0, sizeof(RyCanServoBus_t));
+
+  // Specify the maximum number of Hooks supported.
+  // This should be determined by the user based on actual application needs.
+  // It's recommended to set a value greater than 2 (at least one Hook is needed per bus;
+  // if the user doesn't specify, the library will request at least one Hook internally).
+  stuServoCan.usHookNum = 5;
+
+  // Apply for and specify the required Hook data space.
+  // The following two lines of operation are optional for the user;
+  // RyCanServoBusInit will automatically apply, but the program stack must be sufficient.
+  stuServoCan.pstuHook = (MsgHook_t *)malloc(stuServoCan.usHookNum * sizeof(MsgHook_t));
+  memset(stuServoCan.pstuHook, 0, stuServoCan.usHookNum * sizeof(MsgHook_t));
+
+  // Specify the maximum number of listeners supported. This should be determined by the user based on actual application needs.
+  // If the servo motor active reporting function is required, sufficient listeners must be provided, with one listener needed per servo motor.
+  stuServoCan.usListenNum = 31 + 1;
+  // Apply for and specify the required listen data space.
+  // The following two lines of operation are optional for the user;
+  // RyCanServoBusInit will automatically apply, but the program stack must be sufficient.
+  stuServoCan.pstuListen = (MsgListen_t *)malloc(stuServoCan.usListenNum * sizeof(MsgListen_t));
+  memset(stuServoCan.pstuListen, 0, stuServoCan.usListenNum * sizeof(MsgListen_t));
+
+  // Initialize the library; it will use malloc internally,
+  // so ensure there's enough stack space. Please check the stack space settings.
+  if (RyCanServoBusInit(&stuServoCan, BusWrite, (volatile u16_t *)&uwTick, 1000) != 0) {
+    return false;
+  }
+
+  for (uint8_t i = 0; i < NUM_JOINTS; ++i) {
+    stuListenMsg[i].ulId = SERVO_BACK_ID(i + 1);
+    stuListenMsg[i].pucDat[0] = 0xAA;
+
+    if (AddListen(&stuServoCan, &stuListenMsg[i], CallBck0) != 0) {
+      return false;
+    }
+  }
+
+  for (uint8_t i = 0; i < NUM_JOINTS; ++i) {
+    stuListenMsg[NUM_JOINTS + i].ulId = SERVO_BACK_ID(i + 1);
+    stuListenMsg[NUM_JOINTS + i].pucDat[0] = 0xA0;
+
+    if (AddListen(&stuServoCan, &stuListenMsg[NUM_JOINTS + i], CallBck0) != 0) {
+      return false;
+    }
+  }
+
+  // ---- Init default servo command ----
+  sutServoDataW[0].pucDat[0] = 0xaa;
+  sutServoDataW[0].stuCmd.usTp = 4095;
+  sutServoDataW[0].stuCmd.usTv = 1000;
+  sutServoDataW[0].stuCmd.usTc = 80;
+  for (uint8_t i = 1; i < NUM_JOINTS; ++i) {
+    sutServoDataW[i] = sutServoDataW[0];
+  }
+  return true;
+}
+
+s8_t RuiyanRH2HandHardwareInterface::BusWrite(CanMsg_t stuMsg)
+{
+  return bus_send_message(stuMsg) ? 0 : -1;
+}
+
+void RuiyanRH2HandHardwareInterface::CallBck0(CanMsg_t stuMsg, void * para)
+{
+  u8_t id = stuMsg.ulId;
+  (void)para;
+#if 1
+
+  // For testing purposes, if any motor is found to be in an error state, it can be handled here.
+  if (stuMsg.pucDat[1] == enServo_CurrentOverE) {
+    // Handle errors
+    RyParam_ClearFault(&stuServoCan, id, 1);
+  }
+
+#endif
+
+  // Collect motor data
+  switch (stuMsg.pucDat[0]) {
+    case 0xa0:
+    case 0xa1:
+    case 0xa6:
+    case 0xa9:
+    case 0xaa:
+      if (id && (id < 0x10)) sutServoDataR[id - 1] = *(ServoData_t *)stuMsg.pucDat;
+      break;
+
+    default:
+      break;
+  }
+}
+
+bool RuiyanRH2HandHardwareInterface::bus_send_message(const CanMsg_t & msg)
+{
+  return can_interface_->send_message(msg.ulId, msg.pucDat, msg.ucLen);
+}
+
+bool RuiyanRH2HandHardwareInterface::open_can_socket()
+{
+  if (!can_interface_->initialize()) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
+      "Failed to initialize CAN interface: %s", std::strerror(errno));
+    return false;
+  }
+
+  // Start the CAN interface
+  if (!can_interface_->start()) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "Failed to start CAN interface: %s",
+      std::strerror(errno));
+    return false;
+  }
+
+  return true;
+}
+
 void RuiyanRH2HandHardwareInterface::disconnect_from_hand()
 {
   // TODO: Implement actual disconnection from RH2 hand
   // This should properly close communication channels and cleanup resources
 
-  RCLCPP_WARN(
-    rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "TODO: Implement disconnect_from_hand()");
+  // Stop CAN interface
+  if (can_interface_) {
+    can_interface_->stop();
+    RCLCPP_ERROR(
+      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "Failed to stop CAN interface: %s",
+      std::strerror(errno));
+  } else {
+    RCLCPP_INFO(
+      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "CAN interface stopped successfully");
+  }
 }
 
 bool RuiyanRH2HandHardwareInterface::read_joint_positions(std::vector<double> & positions)
