@@ -76,8 +76,9 @@ public:
 
 private:
   // Communication parameters
-  int hand_id_;
+  // int hand_id_;
   std::string can_interface_name_;  // e.g., "can0"
+  int speed_;
 
   static std::unique_ptr<agilex::piper::CanInterface> can_interface_;  // CAN interface
 
@@ -93,6 +94,49 @@ private:
 
   // Hand specifications
   static constexpr uint8_t NUM_JOINTS = 6;
+  static constexpr uint8_t NUM_MOTORS = 6;
+  static constexpr uint16_t SERVO_CMD_MAX = 4095;
+  static constexpr uint16_t DEFAULT_SPEED = 1000;
+  // Joint → Motor mapping table
+  //
+  // This table defines how IK joint angles (model space) are mapped to
+  // physical motors (actuator space) in an underactuated dexterous hand.
+  //
+  // Key ideas:
+  // 1) Joint ≠ Motor
+  //    - The real hand has fewer motors.
+  //    - One motor may drive multiple joints via mechanical coupling.
+  //
+  // 2) Only "master joints" are directly actuated by motors.
+  //    - Coupled/slave joints are computed from the master joint
+  //      (e.g. via polynomial coupling) and MUST NOT be sent to hardware.
+  //
+  // 3) This mapping is used in the hardware interface:
+  //    - Convert it to a motor command using radx_to_cmd()
+  //    - Send the command only to the corresponding motor_id
+  struct JointMotorMap
+  {
+    int motor_id;       // hardware motor index
+    int joint_id;       // j_ang index (0..10)
+    double offset_deg;  // mechanical zero offset
+  };
+
+  static constexpr JointMotorMap joint_motor_map[NUM_MOTORS] = {
+    {0, 0, 135.0},  // Thumb base
+    {1, 1, 40.0},   // Index MCP
+    {2, 2, 87.0},   // Middle MCP
+    {3, 3, 90.0},   // Ring MCP
+    {4, 4, 90.0},   // Pinky MCP
+    {5, 5, 88.5}    // Thumb MCP
+  };
+
+  // static constexpr std::array<std::array<double, 4>, 5> poly_coeff = {{
+  //   {{0.000329, -0.035054, 2.558963, 0.272863}},   // Thumb
+  //   {{0.000010, -0.004996, 1.426094, -0.044273}},  // Index
+  //   {{0.000002, -0.002910, 1.283182, -0.088568}},  // Middle
+  //   {{0.000010, -0.004996, 1.426094, -0.044273}},  // Ring
+  //   {{0.000016, -0.006612, 1.529302, -0.011082}}   // Pinky
+  // }};
 
   // Joint data
   std::vector<double> hw_commands_;
@@ -114,6 +158,10 @@ private:
   bool open_can_socket();
   bool init_servo_can_system();
   void parse_can_frame(agilex::piper::CanFrameMsg & frame);
+  void UpdataMotor(void);
+  float cmd_to_radx(int cmd, float radmax);
+  int radx_to_cmd(float rad, float radmax);
+  double evaluatePolynomial(double coefficients[], int degree, double x);
 
   // Utility functions
   void enforce_joint_limits();
