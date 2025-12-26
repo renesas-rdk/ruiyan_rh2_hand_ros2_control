@@ -88,30 +88,44 @@ hardware_interface::CallbackReturn RuiyanRH2HandHardwareInterface::on_init(
   }
 
   // Parse current limit parameter (default: 100)
-  it = info_.hardware_parameters.find("current_limit");
+  current_limits_.resize(NUM_MOTORS);
+  it = info_.hardware_parameters.find("current_limits");
   if (it != info_.hardware_parameters.end()) {
-    try {
-      current_limit_ = std::stoi(it->second);
-      if (current_limit_ < 0 || current_limit_ > 1000) {
-        RCLCPP_WARN(
-          rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
-          "Invalid current_limit value: %d. Current limit should be between 0-1000. Using default "
-          "value 300",
-          current_limit_);
-        current_limit_ = DEFAULT_CURRENT_LIMIT;
-      }
-    } catch (const std::exception & e) {
-      RCLCPP_WARN(
-        rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
-        "Failed to parse current_limit parameter: %s. Using default value 300", e.what());
-      current_limit_ = DEFAULT_CURRENT_LIMIT;
+    // Parse space-separated string
+    std::istringstream iss(it->second);
+    std::vector<std::string> tokens;
+    std::string token;
+
+    while (iss >> token) {
+      tokens.push_back(token);
     }
+
+    if (tokens.size() == NUM_MOTORS) {
+      for (size_t i = 0; i < NUM_MOTORS; ++i) {
+        current_limits_[i] = std::stod(tokens[i]);
+      }
+    } else {
+      RCLCPP_ERROR(
+        rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
+        "Invalid current_limits array size: %zu (expected %d)", tokens.size(), NUM_MOTORS);
+      hand_exists_.store(false);
+      return CallbackReturn::ERROR;
+    }
+  } else {
+    // Default values
+    current_limits_ = {300, 300, 300, 300, 300, 300};
   }
 
   RCLCPP_INFO(
     rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
-    "Using CAN interface: %s, hand speed: %d, current limit: %d", can_interface_.c_str(),
-    hand_speed_, current_limit_);
+    "Using CAN interface: %s, hand speed: %d, current limits: [%s]", can_interface_.c_str(),
+    hand_speed_,
+    std::accumulate(
+      current_limits_.begin(), current_limits_.end(), std::string(),
+      [](const std::string & a, double b) {
+        return a + (a.length() > 0 ? ", " : "") + std::to_string(b);
+      })
+      .c_str());
 
   // Verify we have the expected number of joints
   if (info_.joints.size() != NUM_JOINTS) {
@@ -604,12 +618,11 @@ bool RuiyanRH2HandHardwareInterface::init_servo_can_system()
   }
 
   // Init default servo command
-  sutServoDataW_[0].pucDat[0] = 0xaa;  // CMD_SET_TARGET_POS2
-  sutServoDataW_[0].stuCmd.usTp = SERVO_CMD_MAX;
-  sutServoDataW_[0].stuCmd.usTv = hand_speed_;
-  sutServoDataW_[0].stuCmd.usTc = current_limit_;
-  for (uint8_t i = 1; i < NUM_MOTORS; ++i) {
-    sutServoDataW_[i] = sutServoDataW_[0];
+  for (uint8_t i = 0; i < NUM_MOTORS; ++i) {
+    sutServoDataW_[i].pucDat[0] = 0xaa;  // CMD_SET_TARGET_POS2
+    sutServoDataW_[i].stuCmd.usTp = SERVO_CMD_MAX;
+    sutServoDataW_[i].stuCmd.usTv = hand_speed_;
+    sutServoDataW_[i].stuCmd.usTc = current_limits_[i];
   }
 
   return true;

@@ -98,7 +98,7 @@ private:
   struct sockaddr_can addr_;   // CAN Address
   struct ifreq ifr_;           // Network interface request
   int hand_speed_;             // Hand movement speed
-  int current_limit_;          // Current limit for servos
+  std::vector<int> current_limits_;          // Current limit for each servos
   std::atomic<bool> is_running_{false};
   std::thread read_thread_;
 

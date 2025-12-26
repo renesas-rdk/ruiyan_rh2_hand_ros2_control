@@ -11,7 +11,7 @@
     name:=ruiyan_rh2_hand
     can_interface:=can2
     hand_speed:=1000
-    current_limit:=300
+    current_limits:='300 300 300 300 300 300'
     use_mock_hardware:=false
     prefix:=''
     ">
@@ -28,7 +28,7 @@
           <plugin>ruiyan_rh2_hand_ros2_control/RuiyanRH2HandHardwareInterface</plugin>
           <param name="can_interface">${can_interface}</param>
           <param name="hand_speed">${hand_speed}</param>
-          <param name="current_limit">${current_limit}</param>
+          <param name="current_limits">${current_limits}</param>
         </xacro:unless>
       </hardware>
 
