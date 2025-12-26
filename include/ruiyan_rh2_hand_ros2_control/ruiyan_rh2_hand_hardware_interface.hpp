@@ -15,11 +15,19 @@
 // be subject to different terms.
 // ********************************************************************************************************************
 #pragma once
+#include <fcntl.h>
+#include <linux/can.h>
+#include <linux/can/raw.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
+
 #include <array>
+#include <atomic>
 #include <cstdint>
+#include <mutex>
+#include <thread>
 #include <vector>
 
-#include "agilex_piper_controller/can_interface.hpp"
 #include "hardware_interface/handle.hpp"
 #include "hardware_interface/hardware_info.hpp"
 #include "hardware_interface/system_interface.hpp"
@@ -27,20 +35,8 @@
 #include "rclcpp/macros.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/state.hpp"
+#include "ruiyan_rh2_hand_ros2_control/ryhandlib.h"
 #include "ruiyan_rh2_hand_ros2_control/visibility_control.hpp"
-#include "ryhandlib.h"
-#include "stdbool.h"
-
-extern "C" {
-#include "ryhandlib.h"
-}
-#ifdef OK
-#undef OK
-#endif
-
-#ifdef ERROR
-#undef ERROR
-#endif
 
 namespace ruiyan_rh2_hand_ros2_control
 {
@@ -55,6 +51,9 @@ public:
     const hardware_interface::HardwareComponentInterfaceParams & params) override;
 
   RUIYAN_RH2_HAND_ROS2_CONTROL_PUBLIC
+  CallbackReturn on_configure(const rclcpp_lifecycle::State & state) override;
+
+  RUIYAN_RH2_HAND_ROS2_CONTROL_PUBLIC
   std::vector<hardware_interface::StateInterface> export_state_interfaces() override;
 
   RUIYAN_RH2_HAND_ROS2_CONTROL_PUBLIC
@@ -67,6 +66,12 @@ public:
   CallbackReturn on_deactivate(const rclcpp_lifecycle::State & previous_state) override;
 
   RUIYAN_RH2_HAND_ROS2_CONTROL_PUBLIC
+  CallbackReturn on_cleanup(const rclcpp_lifecycle::State & state) override;
+
+  RUIYAN_RH2_HAND_ROS2_CONTROL_PUBLIC
+  CallbackReturn on_shutdown(const rclcpp_lifecycle::State & state) override;
+
+  RUIYAN_RH2_HAND_ROS2_CONTROL_PUBLIC
   hardware_interface::return_type read(
     const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
@@ -74,69 +79,35 @@ public:
   hardware_interface::return_type write(
     const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
+  // Static callback functions
+  static s8_t hand_bus_write(CanMsg_t stuMsg);
+  static void hand_call_back(CanMsg_t stuMsg, void * para);
+
 private:
+  static std::atomic<bool> hand_exists_;  // Don't allow two hand controllers in a single ROS2 node
+  static std::mutex hand_data_mutex_;     // Mutex for hand data access
+  static RyCanServoBus_t stuServoCan_;
+  static CanMsg_t stuListenMsg_[40];
+  static ServoData_t sutServoDataW_[15];
+  static ServoData_t sutServoDataR_[15];
+  static volatile s16_t uwTick_;
+
   // Communication parameters
-  // int hand_id_;
-  std::string can_interface_name_;  // e.g., "can0"
-  int speed_;
-
-  static std::unique_ptr<agilex::piper::CanInterface> can_interface_;  // CAN interface
-
-  static RyCanServoBus_t stuServoCan;
-  static CanMsg_t stuListenMsg[40];
-  static ServoData_t sutServoDataW[15];
-  static ServoData_t sutServoDataR[15];
-  volatile s16_t uwTick;
-
-  static void CallBck0(CanMsg_t stuMsg, void * para);
-  static s8_t BusWrite(CanMsg_t stuMsg);
-  static bool bus_send_message(const CanMsg_t & msg);
+  static int sock_;            // CAN Socket
+  std::string can_interface_;  // e.g., "can0"
+  struct sockaddr_can addr_;   // CAN Address
+  struct ifreq ifr_;           // Network interface request
+  int hand_speed_;             // Hand movement speed
+  int current_limit_;          // Current limit for servos
+  std::atomic<bool> is_running_{false};
+  std::thread read_thread_;
 
   // Hand specifications
   static constexpr uint8_t NUM_JOINTS = 6;
   static constexpr uint8_t NUM_MOTORS = 6;
   static constexpr uint16_t SERVO_CMD_MAX = 4095;
   static constexpr uint16_t DEFAULT_SPEED = 1000;
-  // Joint → Motor mapping table
-  //
-  // This table defines how IK joint angles (model space) are mapped to
-  // physical motors (actuator space) in an underactuated dexterous hand.
-  //
-  // Key ideas:
-  // 1) Joint ≠ Motor
-  //    - The real hand has fewer motors.
-  //    - One motor may drive multiple joints via mechanical coupling.
-  //
-  // 2) Only "master joints" are directly actuated by motors.
-  //    - Coupled/slave joints are computed from the master joint
-  //      (e.g. via polynomial coupling) and MUST NOT be sent to hardware.
-  //
-  // 3) This mapping is used in the hardware interface:
-  //    - Convert it to a motor command using radx_to_cmd()
-  //    - Send the command only to the corresponding motor_id
-  struct JointMotorMap
-  {
-    int motor_id;       // hardware motor index
-    int joint_id;       // j_ang index (0..10)
-    double offset_deg;  // mechanical zero offset
-  };
-
-  static constexpr JointMotorMap joint_motor_map[NUM_MOTORS] = {
-    {0, 0, 135.0},  // Thumb base
-    {1, 1, 40.0},   // Index MCP
-    {2, 2, 87.0},   // Middle MCP
-    {3, 3, 90.0},   // Ring MCP
-    {4, 4, 90.0},   // Pinky MCP
-    {5, 5, 88.5}    // Thumb MCP
-  };
-
-  // static constexpr std::array<std::array<double, 4>, 5> poly_coeff = {{
-  //   {{0.000329, -0.035054, 2.558963, 0.272863}},   // Thumb
-  //   {{0.000010, -0.004996, 1.426094, -0.044273}},  // Index
-  //   {{0.000002, -0.002910, 1.283182, -0.088568}},  // Middle
-  //   {{0.000010, -0.004996, 1.426094, -0.044273}},  // Ring
-  //   {{0.000016, -0.006612, 1.529302, -0.011082}}   // Pinky
-  // }};
+  static constexpr uint16_t DEFAULT_CURRENT_LIMIT = 300;
 
   // Joint data
   std::vector<double> hw_commands_;
@@ -150,22 +121,28 @@ private:
   std::vector<double> joint_min_limits_;
   std::vector<double> joint_max_limits_;
 
-  // Helper functions for communication (TODO: implement low-level driver)
+  // Helper functions for communication
   bool connect_to_hand();
   void disconnect_from_hand();
-  bool read_joint_positions(std::vector<double> & positions);
+  bool read_joint_commands(std::vector<double> & positions);
   bool write_joint_commands(const std::vector<double> & commands);
   bool open_can_socket();
+  void close_can_socket();
   bool init_servo_can_system();
-  void parse_can_frame(agilex::piper::CanFrameMsg & frame);
-  void UpdataMotor(void);
-  float cmd_to_radx(int cmd, float radmax);
-  int radx_to_cmd(float rad, float radmax);
-  double evaluatePolynomial(double coefficients[], int degree, double x);
+  static bool send_can_message(u8_t id, u8_t * data, u8_t len);
+  bool receive_can_message(struct can_frame * frame);
 
   // Utility functions
   void enforce_joint_limits();
   double clamp_to_limits(double value, size_t joint_index) const;
+  double cmd_to_radx(int cmd, double radmax);
+  int radx_to_cmd(double rad, double radmax);
 };
+
+// C wrapper function declarations for Ryhandlib usage
+extern "C" {
+s8_t bus_write_wrapper(CanMsg_t stuMsg);
+void call_back_wrapper(CanMsg_t stuMsg, void * para);
+}
 
 }  // namespace ruiyan_rh2_hand_ros2_control

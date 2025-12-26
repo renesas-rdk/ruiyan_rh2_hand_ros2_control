@@ -29,6 +29,16 @@
 namespace ruiyan_rh2_hand_ros2_control
 {
 
+// Static member definitions
+std::atomic<bool> RuiyanRH2HandHardwareInterface::hand_exists_{false};
+std::mutex RuiyanRH2HandHardwareInterface::hand_data_mutex_;
+RyCanServoBus_t RuiyanRH2HandHardwareInterface::stuServoCan_{};
+CanMsg_t RuiyanRH2HandHardwareInterface::stuListenMsg_[40]{};
+ServoData_t RuiyanRH2HandHardwareInterface::sutServoDataW_[15]{};
+ServoData_t RuiyanRH2HandHardwareInterface::sutServoDataR_[15]{};
+volatile s16_t RuiyanRH2HandHardwareInterface::uwTick_{0};
+int RuiyanRH2HandHardwareInterface::sock_{-1};
+
 hardware_interface::CallbackReturn RuiyanRH2HandHardwareInterface::on_init(
   const hardware_interface::HardwareComponentInterfaceParams & params)
 {
@@ -36,49 +46,79 @@ hardware_interface::CallbackReturn RuiyanRH2HandHardwareInterface::on_init(
     return CallbackReturn::ERROR;
   }
 
+  // Don't allow multiple hand instances on the same ROS2 node
+  {
+    if (hand_exists_.exchange(true)) {
+      RCLCPP_ERROR(
+        rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
+        "Only one instance of RuiyanRH2HandHardwareInterface is allowed per ROS2 node");
+      return CallbackReturn::ERROR;
+    }
+  }
+
   // Initialize parameters
   // Parse can_interface parameter
-  can_interface_name_ = info_.hardware_parameters.at("can_interface");
-  if (can_interface_name_.empty()) {
+  can_interface_ = info_.hardware_parameters.at("can_interface");
+  if (can_interface_.empty()) {
     RCLCPP_ERROR(
       rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
       "Parameter 'can_interface' is required but not specified");
+    hand_exists_.store(false);
     return CallbackReturn::ERROR;
   }
+
   // Parse speed parameter (default: 1000)
-  speed_ = DEFAULT_SPEED;
-  auto it = info_.hardware_parameters.find("speed");
+  auto it = info_.hardware_parameters.find("hand_speed");
   if (it != info_.hardware_parameters.end()) {
     try {
-      speed_ = std::stoi(it->second);
-      if (speed_ < 1 || speed_ > 5000) {
+      hand_speed_ = std::stoi(it->second);
+      if (hand_speed_ < 0 || hand_speed_ > 5000) {
         RCLCPP_WARN(
           rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
-          "Invalid speed value: %d. Speed should be between 1-100. Using default value 50", speed_);
-        speed_ = DEFAULT_SPEED;
+          "Invalid speed value: %d. Speed should be between 0-5000. Using default value 1000",
+          hand_speed_);
+        hand_speed_ = DEFAULT_SPEED;
       }
     } catch (const std::exception & e) {
       RCLCPP_WARN(
         rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
-        "Failed to parse speed parameter: %s. Using default value 50", e.what());
-      speed_ = DEFAULT_SPEED;
+        "Failed to parse speed parameter: %s. Using default value 1000", e.what());
+      hand_speed_ = DEFAULT_SPEED;
     }
   }
 
-  // Define the CAN frame callback
-  auto callback = [this](agilex::piper::CanFrameMsg & frame) { this->parse_can_frame(frame); };
+  // Parse current limit parameter (default: 100)
+  it = info_.hardware_parameters.find("current_limit");
+  if (it != info_.hardware_parameters.end()) {
+    try {
+      current_limit_ = std::stoi(it->second);
+      if (current_limit_ < 0 || current_limit_ > 1000) {
+        RCLCPP_WARN(
+          rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
+          "Invalid current_limit value: %d. Current limit should be between 0-1000. Using default "
+          "value 300",
+          current_limit_);
+        current_limit_ = DEFAULT_CURRENT_LIMIT;
+      }
+    } catch (const std::exception & e) {
+      RCLCPP_WARN(
+        rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
+        "Failed to parse current_limit parameter: %s. Using default value 300", e.what());
+      current_limit_ = DEFAULT_CURRENT_LIMIT;
+    }
+  }
 
-  can_interface_ =
-    std::make_unique<agilex::piper::CanInterface>(can_interface_name_, 1000000, callback);
-
-  // RCLCPP_INFO(
-  //   rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "Initialized with Hand ID: %d", hand_id_);
+  RCLCPP_INFO(
+    rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
+    "Using CAN interface: %s, hand speed: %d, current limit: %d", can_interface_.c_str(),
+    hand_speed_, current_limit_);
 
   // Verify we have the expected number of joints
   if (info_.joints.size() != NUM_JOINTS) {
     RCLCPP_ERROR(
       rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "Expected %d joints, but got %zu",
       NUM_JOINTS, info_.joints.size());
+    hand_exists_.store(false);
     return CallbackReturn::ERROR;
   }
 
@@ -106,6 +146,23 @@ hardware_interface::CallbackReturn RuiyanRH2HandHardwareInterface::on_init(
       joint_min_limits_[i], joint_min_limits_[i] * 180.0 / M_PI, joint_max_limits_[i],
       joint_max_limits_[i] * 180.0 / M_PI);
   }
+
+  return CallbackReturn::SUCCESS;
+}
+
+hardware_interface::CallbackReturn RuiyanRH2HandHardwareInterface::on_configure(
+  const rclcpp_lifecycle::State &)
+{
+  RCLCPP_INFO(rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "Configuring...");
+
+  if (!init_servo_can_system()) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
+      "Failed to configure RH2 hand hardware servo system.");
+    return CallbackReturn::ERROR;
+  }
+
+  RCLCPP_INFO(rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "Successfully configured");
 
   return CallbackReturn::SUCCESS;
 }
@@ -146,9 +203,13 @@ hardware_interface::CallbackReturn RuiyanRH2HandHardwareInterface::on_activate(
 {
   RCLCPP_INFO(rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "Activating...");
 
+  // Set running flag
+  is_running_.store(true);
+
   if (!connect_to_hand()) {
     RCLCPP_ERROR(
       rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "Failed to connect to RH2 hand");
+    is_running_.store(false);
     return CallbackReturn::ERROR;
   }
 
@@ -163,18 +224,54 @@ hardware_interface::CallbackReturn RuiyanRH2HandHardwareInterface::on_deactivate
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
   RCLCPP_INFO(rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "Deactivating...");
+
+  // Shutdown running flag
+  is_running_.store(false);
+
+  // Join read thread
+  if (read_thread_.joinable()) {
+    read_thread_.join();
+  }
+
+  // Disconnect from hand
   disconnect_from_hand();
+
+  return CallbackReturn::SUCCESS;
+}
+
+hardware_interface::CallbackReturn RuiyanRH2HandHardwareInterface::on_cleanup(
+  const rclcpp_lifecycle::State & /*previous_state*/)
+{
+  RCLCPP_INFO(rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "Cleaning up...");
+
+  // Clean up servo CAN system
+  free(stuServoCan_.pstuHook);
+  free(stuServoCan_.pstuListen);
+  stuServoCan_.pstuHook = nullptr;
+  stuServoCan_.pstuListen = nullptr;
+
+  return CallbackReturn::SUCCESS;
+}
+
+hardware_interface::CallbackReturn RuiyanRH2HandHardwareInterface::on_shutdown(
+  const rclcpp_lifecycle::State & /*previous_state*/)
+{
+  RCLCPP_INFO(rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "Shutting down...");
+
+  // Remove instance flag
+  hand_exists_.store(false);
+
   return CallbackReturn::SUCCESS;
 }
 
 hardware_interface::return_type RuiyanRH2HandHardwareInterface::read(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & period)
 {
-  // Read current joint positions from the hand
+  // Read current joint positions and currents from the hand
   std::vector<double> current_positions(NUM_JOINTS);
-  if (!read_joint_positions(current_positions)) {
+  if (!read_joint_commands(current_positions)) {
     RCLCPP_WARN(
-      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "Failed to read joint positions");
+      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "Failed to read joint information");
     return hardware_interface::return_type::ERROR;
   }
 
@@ -221,275 +318,78 @@ hardware_interface::return_type RuiyanRH2HandHardwareInterface::write(
   return hardware_interface::return_type::OK;
 }
 
-// TODO: Implement low-level communication driver for Ruiyan RH2 hand
+// Low-level communication driver for Ruiyan RH2 hand
 bool RuiyanRH2HandHardwareInterface::connect_to_hand()
 {
-  // TODO: Implement actual connection to RH2 hand
-  // This should establish communication via the specified interface (USB, CAN, etc.)
-  // Example implementations might include:
-  // - Serial/USB communication setup
-  // - CAN bus initialization
-  // - Network socket connection
-  // - Proprietary protocol initialization
+  // Open CAN socket
   if (!open_can_socket()) {
     RCLCPP_ERROR(
       rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
-      "Failed to open CAN socket on interface: %s", can_interface_name_.c_str());
+      "Failed to open CAN socket on interface: %s", can_interface_.c_str());
     return false;
   }
 
-  if (!init_servo_can_system()) {
-    RCLCPP_ERROR(
-      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
-      "Failed to open CAN socket on interface: %s", can_interface_name_.c_str());
-    return false;
-  }
-  RCLCPP_WARN(
-    rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "TODO: Implement connect_to_hand()");
+  // Create thread for receiving CAN messages
+  read_thread_ = std::thread([this]() {
+    // Start receiving loop
+    while (is_running_) {
+      // Place the work to be performed by the high-priority thread here
+      auto now = std::chrono::system_clock::now();
+      auto now_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+      uwTick_ = static_cast<unsigned int>(now_ms) % 1000;
 
-  // For now, simulate successful connection
-  return true;
-}
+      struct can_frame frame;
+      if ((sock_ >= 0) && receive_can_message(&frame)) {
+        // Convert received message to CanMsg format
+        CanMsg_t received_msg;
+        memset(&received_msg, 0, sizeof(CanMsg_t));
+        received_msg.ulId = frame.can_id;
+        received_msg.ucLen = frame.can_dlc;
+        memcpy(received_msg.pucDat, frame.data, frame.can_dlc);
 
-float RuiyanRH2HandHardwareInterface::cmd_to_radx(int cmd, float radmax)
-{
-  if (cmd < 0) {
-    cmd = 0;
-  } else if (cmd > SERVO_CMD_MAX) {
-    cmd = SERVO_CMD_MAX;
-  }
-  return radmax * cmd / SERVO_CMD_MAX;
-}
-
-int RuiyanRH2HandHardwareInterface::radx_to_cmd(float rad, float radmax)
-{
-  if (rad < 0) {
-    rad = 0;
-  } else if (rad > radmax) {
-    rad = radmax;
-  }
-  return (int)(rad * SERVO_CMD_MAX / radmax);
-}
-
-double RuiyanRH2HandHardwareInterface::evaluatePolynomial(
-  double coefficients[], int degree, double x)
-{
-  double result = 0;
-
-  for (int i = 0; i <= degree; ++i) {
-    result += coefficients[degree - i] * pow(x, i);
-  }
-
-  return result;
-}
-
-void RuiyanRH2HandHardwareInterface::parse_can_frame(agilex::piper::CanFrameMsg & frame)
-{
-  // Convert agilex::piper::CanFrameMsg to CanMsg_t
-  // TODO: Because using the can_interface from agilex_piper_controller, need to be apdapted to Ruiyan's CanMsg_t
-  CanMsg_t stuMsg;
-
-  stuMsg.ulId = frame.arbitration_id;
-  stuMsg.ucLen = frame.dlc;
-  std::memcpy(stuMsg.pucDat, frame.data, frame.dlc);
-
-  //decode the CAN message using Ruiyan RH2 hand CAN protocol
-  RyCanServoLibRcvMsg(&stuServoCan, stuMsg);
-}
-
-bool RuiyanRH2HandHardwareInterface::init_servo_can_system()
-{
-  // Reset stuServoCan content
-  memset(&stuServoCan, 0, sizeof(RyCanServoBus_t));
-
-  // Specify the maximum number of Hooks supported.
-  // This should be determined by the user based on actual application needs.
-  // It's recommended to set a value greater than 2 (at least one Hook is needed per bus;
-  // if the user doesn't specify, the library will request at least one Hook internally).
-  stuServoCan.usHookNum = 5;
-
-  // Apply for and specify the required Hook data space.
-  // The following two lines of operation are optional for the user;
-  // RyCanServoBusInit will automatically apply, but the program stack must be sufficient.
-  stuServoCan.pstuHook = (MsgHook_t *)malloc(stuServoCan.usHookNum * sizeof(MsgHook_t));
-  memset(stuServoCan.pstuHook, 0, stuServoCan.usHookNum * sizeof(MsgHook_t));
-
-  // Specify the maximum number of listeners supported. This should be determined by the user based on actual application needs.
-  // If the servo motor active reporting function is required, sufficient listeners must be provided, with one listener needed per servo motor.
-  stuServoCan.usListenNum = 31 + 1;
-  // Apply for and specify the required listen data space.
-  // The following two lines of operation are optional for the user;
-  // RyCanServoBusInit will automatically apply, but the program stack must be sufficient.
-  stuServoCan.pstuListen = (MsgListen_t *)malloc(stuServoCan.usListenNum * sizeof(MsgListen_t));
-  memset(stuServoCan.pstuListen, 0, stuServoCan.usListenNum * sizeof(MsgListen_t));
-
-  // Initialize the library; it will use malloc internally,
-  // so ensure there's enough stack space. Please check the stack space settings.
-  if (RyCanServoBusInit(&stuServoCan, BusWrite, (volatile u16_t *)&uwTick, 1000) != 0) {
-    return false;
-  }
-
-  for (uint8_t i = 0; i < NUM_MOTORS; ++i) {
-    stuListenMsg[i].ulId = SERVO_BACK_ID(i + 1);
-    stuListenMsg[i].pucDat[0] = 0xAA;
-
-    if (AddListen(&stuServoCan, &stuListenMsg[i], CallBck0) != 0) {
-      return false;
+        // Call handler function
+        RyCanServoLibRcvMsg(&stuServoCan_, received_msg);
+      }
+      std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
-  }
+  });
 
-  for (uint8_t i = 0; i < NUM_MOTORS; ++i) {
-    stuListenMsg[NUM_MOTORS + i].ulId = SERVO_BACK_ID(i + 1);
-    stuListenMsg[NUM_MOTORS + i].pucDat[0] = 0xA0;
-
-    if (AddListen(&stuServoCan, &stuListenMsg[NUM_MOTORS + i], CallBck0) != 0) {
-      return false;
-    }
-  }
-
-  // ---- Init default servo command ----
-  sutServoDataW[0].pucDat[0] = 0xaa;
-  sutServoDataW[0].stuCmd.usTp = SERVO_CMD_MAX;
-  sutServoDataW[0].stuCmd.usTv = DEFAULT_SPEED;
-  sutServoDataW[0].stuCmd.usTc = 80;
-  for (uint8_t i = 1; i < NUM_MOTORS; ++i) {
-    sutServoDataW[i] = sutServoDataW[0];
-  }
-  return true;
-}
-
-s8_t RuiyanRH2HandHardwareInterface::BusWrite(CanMsg_t stuMsg)
-{
-  return bus_send_message(stuMsg) ? 0 : -1;
-}
-
-void RuiyanRH2HandHardwareInterface::CallBck0(CanMsg_t stuMsg, void * para)
-{
-  u8_t id = stuMsg.ulId;
-  (void)para;
-#if 1
-
-  // For testing purposes, if any motor is found to be in an error state, it can be handled here.
-  if (stuMsg.pucDat[1] == enServo_CurrentOverE) {
-    // Handle errors
-    RyParam_ClearFault(&stuServoCan, id, 1);
-  }
-
-#endif
-
-  // Collect motor data
-  switch (stuMsg.pucDat[0]) {
-    case 0xa0:
-    case 0xa1:
-    case 0xa6:
-    case 0xa9:
-    case 0xaa:
-      if (id && (id < 0x10)) sutServoDataR[id - 1] = *(ServoData_t *)stuMsg.pucDat;
-      break;
-
-    default:
-      break;
-  }
-}
-
-bool RuiyanRH2HandHardwareInterface::bus_send_message(const CanMsg_t & msg)
-{
-  return can_interface_->send_message(msg.ulId, msg.pucDat, msg.ucLen);
-}
-
-bool RuiyanRH2HandHardwareInterface::open_can_socket()
-{
-  if (!can_interface_->initialize()) {
-    RCLCPP_ERROR(
-      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
-      "Failed to initialize CAN interface: %s", std::strerror(errno));
-    return false;
-  }
-
-  // Start the CAN interface
-  if (!can_interface_->start()) {
-    RCLCPP_ERROR(
-      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "Failed to start CAN interface: %s",
-      std::strerror(errno));
-    return false;
-  }
+  // Clear error
+  RyParam_ClearFault(&stuServoCan_, 0, 1);
 
   return true;
 }
 
 void RuiyanRH2HandHardwareInterface::disconnect_from_hand()
 {
-  // TODO: Implement actual disconnection from RH2 hand
-  // This should properly close communication channels and cleanup resources
-
   // Stop CAN interface
-  if (can_interface_) {
-    can_interface_->stop();
-    RCLCPP_ERROR(
-      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "Failed to stop CAN interface: %s",
-      std::strerror(errno));
-  } else {
-    RCLCPP_INFO(
-      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "CAN interface stopped successfully");
-  }
-
-  free(stuServoCan.pstuHook);
-  free(stuServoCan.pstuListen);
-  stuServoCan.pstuHook = nullptr;
-  stuServoCan.pstuListen = nullptr;
+  close_can_socket();
 }
 
-bool RuiyanRH2HandHardwareInterface::read_joint_positions(std::vector<double> & positions)
+bool RuiyanRH2HandHardwareInterface::read_joint_commands(std::vector<double> & positions)
 {
-  // TODO: Implement actual reading of joint positions from RH2 hand
-  positions.assign(6, 0.0);  // j_ang size
-
-  for (const auto & map : joint_motor_map) {
-    int p = sutServoDataR[map.motor_id].stuInfo.ub_P;
-    // Unused
-    // int v = sutServoDataR[map.motor_id].stuInfo.ub_V;
-    // int t = sutServoDataR[map.motor_id].stuInfo.ub_I;
-    // if (v > 2047) v -= 4096;
-    // if (t > 2047) t -= 4096;
-
-    // motor_id → joint_master
-    positions[map.joint_id] = cmd_to_radx(p, map.offset_deg * M_PI / 180.0);
+  // Read current position from servo data
+  std::lock_guard<std::mutex> lock(hand_data_mutex_);
+  for (int i = 0; i < NUM_MOTORS; i++) {
+    positions[i] = cmd_to_radx(sutServoDataR_[i].stuInfo.ub_P, joint_max_limits_.at(i));
   }
-
-  // // For now, simulate joint positions (all at mid-range)
-  // for (size_t i = 0; i < NUM_JOINTS; ++i) {
-  //   positions[i] = (joint_min_limits_[i] + joint_max_limits_[i]) / 2.0;
-  // }
 
   return true;
 }
 
-void RuiyanRH2HandHardwareInterface::UpdataMotor(void)
-{
-  for (int i = 0; i < NUM_MOTORS; i++) {
-    RyMotion_ServoMove_Mix(
-      &stuServoCan, i + 1, sutServoDataW[i].stuCmd.usTp, sutServoDataW[i].stuCmd.usTv,
-      sutServoDataW[i].stuCmd.usTc, &sutServoDataR[i], 1);
-  }
-}
-
 bool RuiyanRH2HandHardwareInterface::write_joint_commands(const std::vector<double> & /*commands*/)
 {
-  // TODO: Implement actual writing of joint commands to RH2 hand
-  // Set default motor parameters
   for (int i = 0; i < NUM_MOTORS; i++) {
-    sutServoDataW[i].stuCmd.usTp = SERVO_CMD_MAX;
-    sutServoDataW[i].stuCmd.usTv = speed_;
-    sutServoDataW[i].stuCmd.usTc = 1000;
-  }
-  for (const auto & map : joint_motor_map) {
-    // Joint angle in radians (from ros2_control command interface)
-    double joint_rad = hw_commands_[map.joint_id];
+    // Set target position
+    sutServoDataW_[i].stuCmd.usTp = radx_to_cmd(hw_commands_[i], joint_max_limits_.at(i));
 
-    // Convert joint angle to servo command with mechanical offset
-    sutServoDataW[map.motor_id].stuCmd.usTp = radx_to_cmd(joint_rad, map.offset_deg * M_PI / 180.0);
+    // Send command to servo
+    RyMotion_ServoMove_Mix(
+      &stuServoCan_, i + 1, sutServoDataW_[i].stuCmd.usTp, sutServoDataW_[i].stuCmd.usTv,
+      sutServoDataW_[i].stuCmd.usTc, &sutServoDataR_[i], 1);
   }
-  UpdataMotor();
+
   return true;
 }
 
@@ -503,6 +403,302 @@ void RuiyanRH2HandHardwareInterface::enforce_joint_limits()
 double RuiyanRH2HandHardwareInterface::clamp_to_limits(double value, size_t joint_index) const
 {
   return std::max(joint_min_limits_[joint_index], std::min(joint_max_limits_[joint_index], value));
+}
+
+// CAN protocol related functions
+
+bool RuiyanRH2HandHardwareInterface::open_can_socket()
+{
+  // Create SocketCAN socket
+  if ((sock_ = socket(PF_CAN, SOCK_RAW, CAN_RAW)) < 0) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "Error while opening CAN socket: %s",
+      std::strerror(errno));
+    return false;
+  }
+
+  // Get interface index
+  const char * can_interface_name = can_interface_.c_str();
+  strcpy(ifr_.ifr_name, can_interface_name);
+  if (ioctl(sock_, SIOCGIFINDEX, &ifr_) < 0) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
+      "Failed to get interface index for %s: %s", can_interface_name, std::strerror(errno));
+    ::close(sock_);
+    sock_ = -1;
+    return false;
+  }
+
+  addr_.can_family = AF_CAN;
+  addr_.can_ifindex = ifr_.ifr_ifindex;
+  // Bind the socket to the CAN interface
+  if (::bind(sock_, (struct sockaddr *)&addr_, sizeof(addr_)) < 0) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
+      "Failed to bind CAN socket to interface %s: %s", can_interface_name, std::strerror(errno));
+    ::close(sock_);
+    sock_ = -1;
+    return false;
+  }
+
+  int flags = fcntl(sock_, F_GETFL, 0);
+  if (flags < 0) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "Error getting socket flags: %s",
+      std::strerror(errno));
+    ::close(sock_);
+    sock_ = -1;
+    return false;
+  }
+
+  if (fcntl(sock_, F_SETFL, flags | O_NONBLOCK) < 0) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
+      "Error setting socket to non-blocking mode: %s", std::strerror(errno));
+    ::close(sock_);
+    sock_ = -1;
+    return false;
+  }
+
+  RCLCPP_INFO(
+    rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
+    "Successfully opened CAN socket on interface: %s", can_interface_name);
+
+  int buf_size;
+  socklen_t len = sizeof(buf_size);
+
+  // Get receive buffer size
+  getsockopt(sock_, SOL_SOCKET, SO_RCVBUF, &buf_size, &len);
+  RCLCPP_INFO(
+    rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "Receive buffer size: %d bytes",
+    buf_size);
+
+  // Get send buffer size
+  getsockopt(sock_, SOL_SOCKET, SO_SNDBUF, &buf_size, &len);
+  RCLCPP_INFO(
+    rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "Send buffer size: %d bytes", buf_size);
+
+  return true;
+}
+
+void RuiyanRH2HandHardwareInterface::close_can_socket()
+{
+  // Check if socket is valid before attempting to close
+  if (sock_ < 0) {
+    RCLCPP_WARN(
+      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
+      "CAN socket is already closed or invalid");
+    return;
+  }
+
+  // Close the CAN socket
+  if (::close(sock_) < 0) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "Error closing CAN socket: %s",
+      std::strerror(errno));
+    sock_ = -1;
+    return;
+  }
+
+  // Reset sock_ to invalid value
+  sock_ = -1;
+  RCLCPP_INFO(
+    rclcpp::get_logger("RuiyanRH2HandHardwareInterface"), "CAN socket closed successfully");
+}
+
+bool RuiyanRH2HandHardwareInterface::send_can_message(u8_t id, u8_t * data, u8_t len)
+{
+  struct can_frame frame;
+
+  // Set CAN frame content
+  frame.can_id = id;             // Frame ID
+  frame.can_dlc = len;           // Data length
+  for (int i = 0; i < len; i++)  // Data content
+  {
+    frame.data[i] = data[i];
+  }
+
+  // Send CAN frame
+  if (::write(sock_, &frame, sizeof(struct can_frame)) != sizeof(struct can_frame)) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
+      "Failed to send CAN message with ID 0x%X: %s", id, std::strerror(errno));
+    return false;
+  }
+
+  return true;
+}
+
+bool RuiyanRH2HandHardwareInterface::receive_can_message(struct can_frame * frame)
+{
+  // Receive CAN frame
+  if (::read(sock_, frame, sizeof(struct can_frame)) < 0) {
+    // No data available or error
+    return false;
+  }
+
+  return true;
+}
+
+bool RuiyanRH2HandHardwareInterface::init_servo_can_system()
+{
+  // Reset stuServoCan content
+  memset(&stuServoCan_, 0, sizeof(RyCanServoBus_t));
+
+  // Specify the maximum number of Hooks supported.
+  // This should be determined by the user based on actual application needs.
+  // It's recommended to set a value greater than 2 (at least one Hook is needed per bus;
+  // if the user doesn't specify, the library will request at least one Hook internally).
+  stuServoCan_.usHookNum = 5;
+
+  // Apply for and specify the required Hook data space.
+  // The following two lines of operation are optional for the user;
+  // RyCanServoBusInit will automatically apply, but the program stack must be sufficient.
+  stuServoCan_.pstuHook = (MsgHook_t *)malloc(stuServoCan_.usHookNum * sizeof(MsgHook_t));
+  memset(stuServoCan_.pstuHook, 0, stuServoCan_.usHookNum * sizeof(MsgHook_t));
+
+  // Specify the maximum number of listeners supported. This should be determined by the user based on actual application needs.
+  // If the servo motor active reporting function is required, sufficient listeners must be provided, with one listener needed per servo motor.
+  stuServoCan_.usListenNum = 31 + 1;
+  // Apply for and specify the required listen data space.
+  // The following two lines of operation are optional for the user;
+  // RyCanServoBusInit will automatically apply, but the program stack must be sufficient.
+  stuServoCan_.pstuListen = (MsgListen_t *)malloc(stuServoCan_.usListenNum * sizeof(MsgListen_t));
+  memset(stuServoCan_.pstuListen, 0, stuServoCan_.usListenNum * sizeof(MsgListen_t));
+
+  // Initialize the library; it will use malloc internally,
+  // so ensure there's enough stack space. Please check the stack space settings.
+  if (RyCanServoBusInit(&stuServoCan_, bus_write_wrapper, (volatile u16_t *)&uwTick_, 1000) != 0) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
+      "Failed to initialize RyCanServoBusInit.");
+    return false;
+  }
+
+  // Add one listener per (servo reply CAN ID + CMD).
+  // We listen to CMD=0xAA (mix motion feedback) and CMD=0xA0 (GetServoInfo replies) for each servo.
+  for (uint8_t i = 0; i < NUM_MOTORS; ++i) {
+    stuListenMsg_[i].ulId = SERVO_BACK_ID(i + 1);
+    stuListenMsg_[i].pucDat[0] = 0xAA;
+
+    if (AddListen(&stuServoCan_, &stuListenMsg_[i], call_back_wrapper) == -1) {
+      RCLCPP_ERROR(
+        rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
+        "AddListen failed (CMD=0xAA) for servo_id=%u (rx_id=0x%X).", static_cast<unsigned>(i + 1),
+        static_cast<unsigned>(stuListenMsg_[i].ulId));
+      return false;
+    }
+  }
+
+  for (uint8_t i = 0; i < NUM_MOTORS; ++i) {
+    stuListenMsg_[NUM_MOTORS + i].ulId = SERVO_BACK_ID(i + 1);
+    stuListenMsg_[NUM_MOTORS + i].pucDat[0] = 0xA0;
+
+    if (AddListen(&stuServoCan_, &stuListenMsg_[NUM_MOTORS + i], call_back_wrapper) == -1) {
+      RCLCPP_ERROR(
+        rclcpp::get_logger("RuiyanRH2HandHardwareInterface"),
+        "AddListen failed (CMD=0xA0) for servo_id=%u (rx_id=0x%X).", static_cast<unsigned>(i + 1),
+        static_cast<unsigned>(stuListenMsg_[NUM_MOTORS + i].ulId));
+      return false;
+    }
+  }
+
+  // Init default servo command
+  sutServoDataW_[0].pucDat[0] = 0xaa;  // CMD_SET_TARGET_POS2
+  sutServoDataW_[0].stuCmd.usTp = SERVO_CMD_MAX;
+  sutServoDataW_[0].stuCmd.usTv = hand_speed_;
+  sutServoDataW_[0].stuCmd.usTc = current_limit_;
+  for (uint8_t i = 1; i < NUM_MOTORS; ++i) {
+    sutServoDataW_[i] = sutServoDataW_[0];
+  }
+
+  return true;
+}
+
+s8_t RuiyanRH2HandHardwareInterface::hand_bus_write(CanMsg_t stuMsg)
+{
+  // 0: success, other: fail
+  s8_t ret = 0;
+
+  if (sock_ >= 0) {
+    if (send_can_message(stuMsg.ulId, stuMsg.pucDat, stuMsg.ucLen))
+      ret = 0;
+    else
+      ret = -1;
+  } else {
+    ret = -1;
+  }
+
+  return ret;
+}
+
+void RuiyanRH2HandHardwareInterface::hand_call_back(CanMsg_t stuMsg, void * para)
+{
+  // Extract motor/servo node ID from the CAN frame ID.
+  // In this protocol, the reply frame ID is (servo_id + 0x100). By casting ulId to u8_t,
+  // we keep only the low 8 bits, which effectively yields the original servo_id.
+  // Example: ulId = 0x101 (257) -> id = 0x01 (servo 1).
+  u8_t id = stuMsg.ulId;
+  (void)para;
+
+#if 1
+  // For testing purposes, if any motor is found to be in an error state, it can be handled here.
+  if (stuMsg.pucDat[1] == enServo_CurrentOverE) {
+    // Handle errors
+    RyParam_ClearFault(&stuServoCan_, id, 1);
+  }
+#endif
+
+  // Collect motor data
+  switch (stuMsg.pucDat[0]) {
+    case 0xa0:  // CMD_GET_MOTOR_INFO
+    case 0xa1:  // CMD_SET_TARGET_POS
+    case 0xa6:  // CMD_SET_MOTOR_PWM
+    case 0xa9:  // CMD_SET_TARGET_CURRENT
+    case 0xaa:  // CMD_SET_TARGET_POS2
+      if (id && (id < 0x10)) {
+        std::lock_guard<std::mutex> lock(hand_data_mutex_);
+        sutServoDataR_[id - 1] = *(ServoData_t *)stuMsg.pucDat;
+      }
+      break;
+
+    default:
+      break;
+  }
+}
+
+// Helper function to convert the command value to radians
+double RuiyanRH2HandHardwareInterface::cmd_to_radx(int cmd, double radmax)
+{
+  if (cmd < 0) {
+    cmd = 0;
+  } else if (cmd > SERVO_CMD_MAX) {
+    cmd = SERVO_CMD_MAX;
+  }
+  return radmax * cmd / SERVO_CMD_MAX;
+}
+
+int RuiyanRH2HandHardwareInterface::radx_to_cmd(double rad, double radmax)
+{
+  if (rad < 0) {
+    rad = 0;
+  } else if (rad > radmax) {
+    rad = radmax;
+  }
+  return (int)(rad * SERVO_CMD_MAX / radmax);
+}
+
+// C wrapper implementations
+extern "C" {
+s8_t bus_write_wrapper(CanMsg_t stuMsg)
+{
+  return RuiyanRH2HandHardwareInterface::hand_bus_write(stuMsg);
+}
+
+void call_back_wrapper(CanMsg_t stuMsg, void * para)
+{
+  RuiyanRH2HandHardwareInterface::hand_call_back(stuMsg, para);
+}
 }
 
 }  // namespace ruiyan_rh2_hand_ros2_control

@@ -12,26 +12,18 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-include_directories(include)
-include_directories(lib)
-
-
-find_library(RUIYAN_SRC_LIB
-    NAMES RyhandArm64
-    PATHS ${CMAKE_CURRENT_SOURCE_DIR}/lib
-)
-
-
 # Find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
-find_package(agilex_piper_controller REQUIRED)
-
 
 # Ensure library files are found
+find_library(RUIYAN_SRC_LIB
+    NAMES RyhandArm64
+    PATHS ${CMAKE_CURRENT_SOURCE_DIR}/lib
+)
 if (NOT RUIYAN_SRC_LIB)
     message(FATAL_ERROR "library Path: ${CMAKE_CURRENT_SOURCE_DIR}/lib not found!")
 endif()
@@ -47,17 +39,26 @@ target_include_directories(${PROJECT_NAME}_hardware_interface
     include
 )
 
+target_link_libraries(${PROJECT_NAME}_hardware_interface
+  ${RUIYAN_SRC_LIB}
+)
+
 ament_target_dependencies(${PROJECT_NAME}_hardware_interface
   hardware_interface
   rclcpp
   rclcpp_lifecycle
   pluginlib
-  agilex_piper_controller
 )
 
 # Install library
 install(
   TARGETS ${PROJECT_NAME}_hardware_interface
+  DESTINATION lib
+)
+
+# Install the lib folder containing C Ruiyan library
+install(
+  DIRECTORY lib/
   DESTINATION lib
 )
 

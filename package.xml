@@ -15,7 +15,6 @@
   <depend>rclcpp_lifecycle</depend>
   <depend>hardware_interface</depend>
   <depend>pluginlib</depend>
-  <depend>agilex_piper_controller</depend>
 
   <!-- Testing dependencies -->
   <test_depend>ament_lint_auto</test_depend>

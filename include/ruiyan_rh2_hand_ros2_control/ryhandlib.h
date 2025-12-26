@@ -60,10 +60,6 @@ extern "C" {
 #define ULIB_ENABLE 1
 #define ULIB_DISABLE 0
 
-#define OK 0
-#define FAIL 1
-#define ERROR -1
-
 #define CMD_SUCCEED 1
 #define CMD_FAIL 0
 
@@ -727,14 +723,15 @@ Exportmode u8_t
 RyParam_SetStroke(RyCanServoBus_t * pstuCan, u8_t ucId, u32_t ulStroke, u16_t usTimeout);
 
 //*********************************************************************************************************************************
-//*函数名称 - RyParam_GetStroke_H
-//*函数作用 - 读取伺服行程上限
-//*  参数 ：
-//*		*pstuCan     - [i] 伺服CAN总线对象地址
-//*     ucId       - [i] 指定伺服ID，0-254，0表示广播，255保留不用
-//*   *pulStrokeH  - [o] 返回行程上限值首地址，量纲为 电机原始位置传感器/编码器行程值
-//* usTimeout      - [i] 接收超时时间,单位ms,0~65535,其中0表示异步解析返回值或不关心返回值，函数不等待，发完即回，其它表示最大等待返回时间
-//* 返回值 - 参考枚举类型 enret_t 及对应解释
+//* Function Name - RyParam_GetStroke_H
+//* Function Purpose - Read servo stroke upper limit
+//* Parameters:
+//*   *pstuCan     - [i] Address of the servo CAN bus object
+//*   ucId         - [i] Specified servo ID, 0-254; 0 means broadcast, 255 is reserved and unused
+//*   *pulStrokeH  - [o] Start address to return stroke upper limit value, unit is motor raw position sensor/encoder stroke value
+//*   usTimeout    - [i] Receive timeout in milliseconds, 0-65535. 0 means asynchronous parsing or ignoring return value,
+//*                      the function returns immediately after sending. Other values specify the maximum wait time.
+//* Return Value - Refer to the enumeration type enret_t and corresponding explanations
 //*********************************************************************************************************************************
 Exportmode u8_t
 RyParam_GetStroke_H(RyCanServoBus_t * pstuCan, u8_t ucId, u32_t * pulStrokeH, u16_t usTimeout);
