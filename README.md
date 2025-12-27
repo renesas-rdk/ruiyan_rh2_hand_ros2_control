@@ -33,6 +33,20 @@ ROS 2 package that provides a ros2_control hardware interface for the Ruiyan RH2
   - Ruiyan RH2 Hand
   - CAN or CANFD interface support for hardware communication
   - A power supply unit (PSU) capable of providing sufficient current for the hand servos, recommended 24V 10A for optimal performance
+- For cross compilation ensure you copy the required ``libRyhandArm64.so`` library to the target sysroot. Otherwise, the error below may occur when building the workspace:
+  ```
+  --- stderr: ruiyan_rh2_hand_ros2_control
+  make[2]: *** No rule to make target '/opt/poky/5.1.4/sysroots/cortexa55-poky-linux/usr/lib/libRyhandArm64.so', needed by 'libruiyan_rh2_hand_ros2_control_hardware_interface.so'.  Stop.
+  make[2]: *** Waiting for unfinished jobs....
+  make[1]: *** [CMakeFiles/Makefile2:137: CMakeFiles/ruiyan_rh2_hand_ros2_control_hardware_interface.dir/all] Error 2
+  make: *** [Makefile:146: all] Error 2
+  ---
+  ```
+
+  To fix this, copy the library to the target sysroot with the command below (adjust the path as necessary):
+  ```bash
+  sudo cp ruiyan_rh2_hand_ros2_control/lib/libRyhandArm64.so $ROS2_SDK_SYSROOT/usr/lib/
+  ```
 
 **Important**: If your PSU cannot provide sufficient current, consider reducing the hand current limit parameter to avoid undervoltage issues.
 Each RyCAN servo can draw up to the configured current limit under load.
