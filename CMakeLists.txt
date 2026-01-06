@@ -19,6 +19,16 @@ find_package(rclcpp_lifecycle REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
 
+# Ensure library files are found
+find_library(RUIYAN_SRC_LIB
+    NAMES RyhandArm64
+    PATHS ${CMAKE_CURRENT_SOURCE_DIR}/lib
+)
+if (NOT RUIYAN_SRC_LIB)
+    message(FATAL_ERROR "library Path: ${CMAKE_CURRENT_SOURCE_DIR}/lib not found!")
+endif()
+message(STATUS "library found! ${RUIYAN_SRC_LIB}")
+
 # Hardware interface library
 add_library(${PROJECT_NAME}_hardware_interface SHARED
   src/ruiyan_rh2_hand_hardware_interface.cpp
@@ -27,6 +37,10 @@ add_library(${PROJECT_NAME}_hardware_interface SHARED
 target_include_directories(${PROJECT_NAME}_hardware_interface
   PRIVATE
     include
+)
+
+target_link_libraries(${PROJECT_NAME}_hardware_interface
+  ${RUIYAN_SRC_LIB}
 )
 
 ament_target_dependencies(${PROJECT_NAME}_hardware_interface
@@ -39,6 +53,12 @@ ament_target_dependencies(${PROJECT_NAME}_hardware_interface
 # Install library
 install(
   TARGETS ${PROJECT_NAME}_hardware_interface
+  DESTINATION lib
+)
+
+# Install the lib folder containing C Ruiyan library
+install(
+  DIRECTORY lib/
   DESTINATION lib
 )
 

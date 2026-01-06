@@ -9,7 +9,9 @@
 
   <xacro:macro name="ruiyan_rh2_hand_ros2_control" params="
     name:=ruiyan_rh2_hand
-    hand_id:=1
+    can_interface:=can2
+    hand_speed:=1000
+    current_limits:='300 300 300 300 300 300'
     use_mock_hardware:=false
     prefix:=''
     ">
@@ -24,7 +26,9 @@
         </xacro:if>
         <xacro:unless value="${use_mock_hardware}">
           <plugin>ruiyan_rh2_hand_ros2_control/RuiyanRH2HandHardwareInterface</plugin>
-          <param name="hand_id">${hand_id}</param>
+          <param name="can_interface">${can_interface}</param>
+          <param name="hand_speed">${hand_speed}</param>
+          <param name="current_limits">${current_limits}</param>
         </xacro:unless>
       </hardware>
 
