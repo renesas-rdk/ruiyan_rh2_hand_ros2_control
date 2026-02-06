@@ -19,15 +19,39 @@ find_package(rclcpp_lifecycle REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
 
-# Ensure library files are found
-find_library(RUIYAN_SRC_LIB
-    NAMES RyhandArm64
-    PATHS ${CMAKE_CURRENT_SOURCE_DIR}/lib
-)
-if (NOT RUIYAN_SRC_LIB)
-    message(FATAL_ERROR "library Path: ${CMAKE_CURRENT_SOURCE_DIR}/lib not found!")
+# Detect platform and select appropriate library
+set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib)
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+  set(RUIYAN_LIB_NAME "libRyhand64.so")
+  message(STATUS "Detected x86_64 platform - using libRyhand64.so")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
+  set(RUIYAN_LIB_NAME "libRyhandArm64.so")
+  message(STATUS "Detected ARM64 platform - using libRyhandArm64.so")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "armv7l")
+  set(RUIYAN_LIB_NAME "libRyhandArm.so")
+  message(STATUS "Detected ARM 32-bit platform - using libRyhandArm.so")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "i686")
+  set(RUIYAN_LIB_NAME "libRyhand.so")
+  message(STATUS "Detected x86 32-bit platform - using libRyhand.so")
+else()
+  message(FATAL_ERROR "Unsupported platform: ${CMAKE_SYSTEM_PROCESSOR}")
 endif()
-message(STATUS "library found! ${RUIYAN_SRC_LIB}")
+
+set(RUIYAN_SRC_LIB ${LIB_DIR}/${RUIYAN_LIB_NAME})
+
+if(NOT EXISTS ${RUIYAN_SRC_LIB})
+  message(FATAL_ERROR "Library not found: ${RUIYAN_SRC_LIB}")
+endif()
+
+message(STATUS "Using library: ${RUIYAN_SRC_LIB}")
+
+# Create an imported target for the vendor library
+add_library(ruiyan_vendor SHARED IMPORTED)
+set_target_properties(ruiyan_vendor PROPERTIES
+  IMPORTED_LOCATION ${RUIYAN_SRC_LIB}
+  IMPORTED_NO_SONAME TRUE
+)
 
 # Hardware interface library
 add_library(${PROJECT_NAME}_hardware_interface SHARED
@@ -35,30 +59,36 @@ add_library(${PROJECT_NAME}_hardware_interface SHARED
 )
 
 target_include_directories(${PROJECT_NAME}_hardware_interface
-  PRIVATE
-    include
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
 )
 
 target_link_libraries(${PROJECT_NAME}_hardware_interface
-  ${RUIYAN_SRC_LIB}
+  PUBLIC
+    ruiyan_vendor
 )
 
 ament_target_dependencies(${PROJECT_NAME}_hardware_interface
-  hardware_interface
-  rclcpp
-  rclcpp_lifecycle
-  pluginlib
+  PUBLIC
+    hardware_interface
+    rclcpp
+    rclcpp_lifecycle
+    pluginlib
 )
 
-# Install library
+# Install targets
 install(
   TARGETS ${PROJECT_NAME}_hardware_interface
-  DESTINATION lib
+  EXPORT export_${PROJECT_NAME}
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
 )
 
-# Install the lib folder containing C Ruiyan library
+# Install the vendor library
 install(
-  DIRECTORY lib/
+  FILES ${RUIYAN_SRC_LIB}
   DESTINATION lib
 )
 
@@ -68,20 +98,18 @@ install(
   DESTINATION include
 )
 
-# Install urdf and config files for ros2_control
+# Install config and urdf files
 install(
-  DIRECTORY
-    config
-    urdf
+  DIRECTORY config urdf
   DESTINATION share/${PROJECT_NAME}
 )
 
 # Export plugin description
 pluginlib_export_plugin_description_file(hardware_interface hardware_interface_plugin.xml)
 
-# Export dependencies
+# Export targets and dependencies
+ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_include_directories(include)
-ament_export_libraries(${PROJECT_NAME}_hardware_interface)
 ament_export_dependencies(
   hardware_interface
   rclcpp
