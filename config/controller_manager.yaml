@@ -5,10 +5,10 @@ controller_manager:
   ros__parameters:
     # Update rate for the controller manager
     # Adjust based on communication interface capabilities
-    update_rate: 50  # Hz (20ms cycle time)
+    update_rate: 10  # Hz
 
     # Turn on clamping
-    enforce_command_limits: true
+    enforce_command_limits: false
 
     # Available controller types
     joint_state_broadcaster:
