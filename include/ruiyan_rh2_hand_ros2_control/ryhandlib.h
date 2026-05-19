@@ -133,8 +133,8 @@ typedef struct
   u64_t ub_P : 12;     // Current position: 0-4095 corresponds to 0 to full travel.
   u64_t ub_V : 12;     // Current speed, -2048~2047, unit 0.001 travel/s
   u64_t ub_I : 12;     // Current current, -2048~2047, unit 0.01A
-  u64_t
-    ub_F : 12;  // Current position: 0-4095 corresponds to the original ADC value of the finger pressure sensor.
+  u64_t ub_F
+    : 12;  // Current position: 0-4095 corresponds to the original ADC value of the finger pressure sensor.
 } FingerServoInfo_t;
 
 typedef struct
@@ -389,7 +389,7 @@ Exportmode u8_t RyFunc_StartUpgrade(
 //*     ucDataLen    - [i] Length of the current data frame, must be less than or equal to the value returned by RyFunc_StartUpgrade ( *pucFrameLen - 4 )
 //*     *ulNextAddr  - [o] Address of the next data to be sent
 //*     *ulPreData   - [o] The most recently received upgrade data content
-//*     usTimeout    - [i] Receive timeout in milliseconds, range: 0~65535. 0 indicates asynchronous parsing or ignoring the return value—the function returns immediately after sending. Other values specify the maximum wait time for a response.
+//*     usTimeout    - [i] Receive timeout in milliseconds, range: 0~65535. 0 indicates asynchronous parsing or ignoring the return value-the function returns immediately after sending. Other values specify the maximum wait time for a response.
 //* Return Value - Refer to the enumeration type enret_t and corresponding explanations
 //*********************************************************************************************************************************
 Exportmode u8_t RyFunc_WriteUpgradeData(
@@ -407,7 +407,7 @@ Exportmode u8_t RyFunc_WriteUpgradeData(
 //*                           0: Upgrade successful, node rebooted
 //*                           1: CRC32 verification failed
 //*                           2: New firmware hardware version mismatch
-//*     usTimeout     - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value—the function returns immediately after sending. Other values specify the maximum wait time.
+//*     usTimeout     - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value-the function returns immediately after sending. Other values specify the maximum wait time.
 //* Return Value - Refer to the enumeration type enret_t and corresponding explanations
 //*********************************************************************************************************************************
 Exportmode u8_t RyFunc_FinishUpgrade(
@@ -420,7 +420,7 @@ Exportmode u8_t RyFunc_FinishUpgrade(
 //*     *pstuCan    - [i] Address of the servo CAN bus object
 //*     ucId        - [i] Specified servo ID, 0–254; 0 means broadcast, 255 is reserved and unused
 //*     pucBuff     - [i] Address of the SN code to be written to the servo (standard content is ASCII code, length less than 36 bytes)
-//*     usTimeout   - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value—the function returns immediately after sending. Other values specify the maximum wait time.
+//*     usTimeout   - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value-the function returns immediately after sending. Other values specify the maximum wait time.
 //* Return Value - Refer to the enumeration type enret_t and corresponding explanations
 //*********************************************************************************************************************************
 Exportmode u8_t
@@ -433,7 +433,7 @@ RyFunc_SetSNCode(RyCanServoBus_t * pstuCan, u8_t ucId, u8_t pucBuff[40], u16_t u
 //*     *pstuCan    - [i] Address of the servo CAN bus object
 //*     ucId        - [i] Specified servo ID, 0–254; 0 means broadcast, 255 is reserved and unused
 //*     pucBuff     - [o] Start address of the read servo SN code (standard content is ASCII code, length less than 36 bytes)
-//*     usTimeout   - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value—the function returns immediately after sending. Other values specify the maximum wait time.
+//*     usTimeout   - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value-the function returns immediately after sending. Other values specify the maximum wait time.
 //* Return Value - Refer to the enumeration type enret_t and corresponding explanations
 //*********************************************************************************************************************************
 Exportmode u8_t
@@ -446,7 +446,7 @@ RyFunc_GetSNCode(RyCanServoBus_t * pstuCan, u8_t ucId, u8_t pucBuff[40], u16_t u
 //*     *pstuCan    - [i] Address of the servo CAN bus object
 //*     ucId        - [i] Specified servo ID, 0–254; 0 means broadcast, 255 is reserved and unused
 //*     ubTime      - [i] Time object to be set, refer to the definition of DevTimeCmd_t
-//*     usTimeout   - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value—the function returns immediately after sending. Other values specify the maximum wait time.
+//*     usTimeout   - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value-the function returns immediately after sending. Other values specify the maximum wait time.
 //* Return Value - Refer to the enumeration type enret_t and corresponding explanations
 //*********************************************************************************************************************************
 Exportmode u8_t
@@ -460,7 +460,7 @@ RyParam_SetTime(RyCanServoBus_t * pstuCan, u8_t ucId, DevTimeCmd_t ubTime, u16_t
 //*     ucId           - [i] Specified servo ID, 0–254; 0 means broadcast, 255 is reserved and unused
 //*     ucNewId        - [i] New servo ID to be set, range 1–254
 //*     *pulUniqueCode - [io] Address of the variable identifying the servo's unique code. If unknown, any value can be given (e.g., 0). The servo will report its own unique code in the response.
-//*     usTimeout      - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value—the function returns immediately after sending. Other values specify the maximum wait time.
+//*     usTimeout      - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value-the function returns immediately after sending. Other values specify the maximum wait time.
 //* Return Value - Refer to the enumeration type enret_t and corresponding explanations
 //*********************************************************************************************************************************
 Exportmode u8_t RyParam_SetID(
@@ -473,7 +473,7 @@ Exportmode u8_t RyParam_SetID(
 //*     *pstuCan       - [i] Address of the servo CAN bus object
 //*     ucId           - [i] Specified servo ID, 0–254; 0 means broadcast, 255 is reserved and unused
 //*     *pulUniqueCode - [io] Address of the variable identifying the servo's unique code. If unknown, any value can be given (e.g., 0). The servo will report its own unique code in the response.
-//*     usTimeout      - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value—the function returns immediately after sending. Other values specify the maximum wait time.
+//*     usTimeout      - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value-the function returns immediately after sending. Other values specify the maximum wait time.
 //* Return Value - Refer to the enumeration type enret_t and corresponding explanations
 //*********************************************************************************************************************************
 Exportmode u8_t
@@ -485,7 +485,7 @@ RyParam_Recover(RyCanServoBus_t * pstuCan, u8_t ucId, u32_t * pulUniqueCode, u16
 //* Parameters:
 //*     *pstuCan    - [i] Address of the servo CAN bus object
 //*     ucId        - [i] Specified servo ID, 0–254; 0 means broadcast, 255 is reserved and unused
-//*     usTimeout   - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value—the function returns immediately after sending. Other values specify the maximum wait time.
+//*     usTimeout   - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value-the function returns immediately after sending. Other values specify the maximum wait time.
 //* Return Value - Refer to the enumeration type enret_t and corresponding explanations
 //*********************************************************************************************************************************
 Exportmode u8_t RyFunc_Reset(RyCanServoBus_t * pstuCan, u8_t ucId, u16_t usTimeout);
@@ -533,7 +533,7 @@ Exportmode u8_t RyFunc_Reset(RyCanServoBus_t * pstuCan, u8_t ucId, u16_t usTimeo
 //*                           2000000,
 //*                           4000000,
 //*                           5000000, *
-//*     usTimeout      - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value—the function returns immediately after sending. Other values specify the maximum wait time.
+//*     usTimeout      - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value-the function returns immediately after sending. Other values specify the maximum wait time.
 //* Return Value - Refer to the enumeration type enret_t and corresponding explanations
 //*********************************************************************************************************************************
 Exportmode u8_t RyParam_SetCanFDBaudRate(
@@ -567,7 +567,7 @@ Exportmode u8_t RyParam_SetCanFDBaudRate(
 //*                      6000000
 //*                      8000000
 //*                      10000000
-//*     usTimeout    - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value—the function returns immediately after sending. Other values specify the maximum wait time.
+//*     usTimeout    - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value-the function returns immediately after sending. Other values specify the maximum wait time.
 //* Return Value - Refer to the enumeration type enret_t and corresponding explanations
 //*********************************************************************************************************************************
 Exportmode u8_t
@@ -581,7 +581,7 @@ RyParam_SetRS485BaudRate(RyCanServoBus_t * pstuCan, u8_t ucId, u32_t ulBuadRate,
 //*     ucId           - [i] Specified servo ID, 0–254; 0 means broadcast, 255 is reserved and unused
 //*     usTspan        - [i] Active reporting time interval in milliseconds, range 0–1000; 0 means no reporting, values above 1000 are treated as 1000
 //*     *psutServoData - [o] Start address for receiving servo information
-//*     usTimeout      - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value—the function returns immediately after sending. Other values specify the maximum wait time.
+//*     usTimeout      - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value-the function returns immediately after sending. Other values specify the maximum wait time.
 //* Return Value - Refer to the enumeration type enret_t and corresponding explanations
 //*********************************************************************************************************************************
 Exportmode u8_t RyParam_SetUpateRate(
@@ -595,7 +595,7 @@ Exportmode u8_t RyParam_SetUpateRate(
 //*     *pstuCan    - [i] Address of the servo CAN bus object
 //*     ucId        - [i] Specified servo ID, 0–254; 0 means broadcast, 255 is reserved and unused
 //*     ucMute      - [i] Motion command mute usage, 0 - motion command responds normally, 1 - motion command does not respond
-//*     usTimeout   - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value—the function returns immediately after sending. Other values specify the maximum wait time.
+//*     usTimeout   - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value-the function returns immediately after sending. Other values specify the maximum wait time.
 //* Return Value - Refer to the enumeration type enret_t and corresponding explanations
 //*********************************************************************************************************************************
 Exportmode u8_t
@@ -608,7 +608,7 @@ RyParam_SetMotionMute(RyCanServoBus_t * pstuCan, u8_t ucId, u8_t ucMute, u16_t u
 //*     *pstuCan      - [i] Address of the servo CAN bus object
 //*     ucId          - [i] Specified servo ID, 0–254; 0 means broadcast, 255 is reserved and unused
 //*     *pucRigidity  - [i] Used to receive servo position control rigidity information
-//*     usTimeout     - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value—the function returns immediately after sending. Other values specify the maximum wait time.
+//*     usTimeout     - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value-the function returns immediately after sending. Other values specify the maximum wait time.
 //* Return Value - Refer to the enumeration type enret_t and corresponding explanations
 //*********************************************************************************************************************************
 Exportmode u8_t
@@ -621,7 +621,7 @@ RyParam_GetRigidity(RyCanServoBus_t * pstuCan, u8_t ucId, u8_t * pucRigidity, u1
 //*     *pstuCan    - [i] Address of the servo CAN bus object
 //*     ucId        - [i] Specified servo ID, 0–254; 0 means broadcast, 255 is reserved and unused
 //*     ucRigidity  - [i] Servo position control rigidity value
-//*     usTimeout   - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value—the function returns immediately after sending. Other values specify the maximum wait time.
+//*     usTimeout   - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value-the function returns immediately after sending. Other values specify the maximum wait time.
 //* Return Value - Refer to the enumeration type enret_t and corresponding explanations
 //*********************************************************************************************************************************
 Exportmode u8_t
@@ -635,7 +635,7 @@ RyParam_SetRigidity(RyCanServoBus_t * pstuCan, u8_t ucId, u8_t ucRigidity, u16_t
 //*     ucId         - [i] Specified servo ID, 0–254; 0 means broadcast, 255 is reserved and unused
 //*     usPosition   - [i] Target position value, 0 to 4095 corresponds to 0 to full stroke
 //*     *pusPosoff   - [o] Received internal position compensation value, 0 to 4095 corresponds to 0 to full stroke
-//*     usTimeout    - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value—the function returns immediately after sending. Other values specify the maximum wait time.
+//*     usTimeout    - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value-the function returns immediately after sending. Other values specify the maximum wait time.
 //* Return Value - Refer to the enumeration type enret_t and corresponding explanations
 //*********************************************************************************************************************************
 Exportmode u8_t RyParam_SetPosition(
@@ -647,7 +647,7 @@ Exportmode u8_t RyParam_SetPosition(
 //* Parameters:
 //*     *pstuCan    - [i] Address of the servo CAN bus object
 //*     ucId        - [i] Specified servo ID, 0–254; 0 means broadcast, 255 is reserved and unused
-//*     usTimeout   - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value—the function returns immediately after sending. Other values specify the maximum wait time.
+//*     usTimeout   - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value-the function returns immediately after sending. Other values specify the maximum wait time.
 //* Return Value - Refer to the enumeration type enret_t and corresponding explanations
 //*********************************************************************************************************************************
 Exportmode u8_t RyParam_ClearFault(RyCanServoBus_t * pstuCan, u8_t ucId, u16_t usTimeout);
@@ -666,7 +666,7 @@ Exportmode u8_t RyParam_ClearFault(RyCanServoBus_t * pstuCan, u8_t ucId, u16_t u
 //*                            bit 3  - Motor torque protection
 //*                            bit 4  - Motor fuse bit error protection
 //*                            bit 5  - Motor stall protection
-//*     usTimeout          - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value—the function
+//*     usTimeout          - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value-the function
 //*                              returns immediately after sending. Other values specify the maximum wait time.
 //* Return Value - Refer to the enumeration type enret_t and corresponding explanations
 //*********************************************************************************************************************************
@@ -688,7 +688,7 @@ Exportmode u8_t RyParam_GetProtectionCfg(
 //*                            bit 4  - Motor fuse bit error protection
 //*                            bit 5  - Motor stall protection
 //*     usTimeout          - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return
-//*                              value—the function returns immediately after sending. Other values specify the maximum wait time.
+//*                              value-the function returns immediately after sending. Other values specify the maximum wait time.
 //* Return Value - Refer to the enumeration type enret_t and corresponding explanations
 //*********************************************************************************************************************************
 Exportmode u8_t RyParam_SetProtectionCfg(
@@ -701,7 +701,7 @@ Exportmode u8_t RyParam_SetProtectionCfg(
 //*     *pstuCan     - [i] Address of the servo CAN bus object
 //*     ucId         - [i] Specified servo ID, 0–254; 0 means broadcast, 255 is reserved and unused
 //*     *pulStroke   - [o] Start address to return stroke information, unit is motor original position sensor/encoder stroke value
-//*     usTimeout    - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value—the
+//*     usTimeout    - [i] Receive timeout in milliseconds, 0–65535. 0 means asynchronous parsing or ignoring return value-the
 //*                        function returns immediately after sending. Other values specify the maximum wait time.
 //* Return Value - Refer to the enumeration type enret_t and corresponding explanations
 //*********************************************************************************************************************************

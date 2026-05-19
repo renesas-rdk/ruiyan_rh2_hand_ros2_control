@@ -102,7 +102,7 @@ hardware_interface::CallbackReturn RuiyanRH2HandHardwareInterface::on_init(
 
     if (tokens.size() == NUM_MOTORS) {
       for (size_t i = 0; i < NUM_MOTORS; ++i) {
-        current_limits_[i] = std::stod(tokens[i]);
+        current_limits_[i] = std::stoi(tokens[i]);
       }
     } else {
       RCLCPP_ERROR(
@@ -351,7 +351,7 @@ bool RuiyanRH2HandHardwareInterface::connect_to_hand()
       auto now = std::chrono::system_clock::now();
       auto now_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
-      uwTick_ = static_cast<unsigned int>(now_ms) % 1000;
+      uwTick_ = static_cast<s16_t>(now_ms % 1000);
 
       struct can_frame frame;
       if ((sock_ >= 0) && receive_can_message(&frame)) {
@@ -396,12 +396,13 @@ bool RuiyanRH2HandHardwareInterface::write_joint_commands(const std::vector<doub
 {
   for (int i = 0; i < NUM_MOTORS; i++) {
     // Set target position
-    sutServoDataW_[i].stuCmd.usTp = radx_to_cmd(hw_commands_[i], joint_max_limits_.at(i));
+    sutServoDataW_[i].stuCmd.usTp =
+      static_cast<u16_t>(radx_to_cmd(hw_commands_[i], joint_max_limits_.at(i)));
 
     // Send command to servo
     RyMotion_ServoMove_Mix(
-      &stuServoCan_, i + 1, sutServoDataW_[i].stuCmd.usTp, sutServoDataW_[i].stuCmd.usTv,
-      sutServoDataW_[i].stuCmd.usTc, &sutServoDataR_[i], 1);
+      &stuServoCan_, static_cast<u8_t>(i + 1), sutServoDataW_[i].stuCmd.usTp,
+      sutServoDataW_[i].stuCmd.usTv, sutServoDataW_[i].stuCmd.usTc, &sutServoDataR_[i], 1);
   }
 
   return true;
@@ -621,8 +622,8 @@ bool RuiyanRH2HandHardwareInterface::init_servo_can_system()
   for (uint8_t i = 0; i < NUM_MOTORS; ++i) {
     sutServoDataW_[i].pucDat[0] = 0xaa;  // CMD_SET_TARGET_POS2
     sutServoDataW_[i].stuCmd.usTp = SERVO_CMD_MAX;
-    sutServoDataW_[i].stuCmd.usTv = hand_speed_;
-    sutServoDataW_[i].stuCmd.usTc = current_limits_[i];
+    sutServoDataW_[i].stuCmd.usTv = static_cast<u16_t>(hand_speed_);
+    sutServoDataW_[i].stuCmd.usTc = static_cast<u16_t>(current_limits_[i]);
   }
 
   return true;
@@ -634,7 +635,7 @@ s8_t RuiyanRH2HandHardwareInterface::hand_bus_write(CanMsg_t stuMsg)
   s8_t ret = 0;
 
   if (sock_ >= 0) {
-    if (send_can_message(stuMsg.ulId, stuMsg.pucDat, stuMsg.ucLen))
+    if (send_can_message(static_cast<u8_t>(stuMsg.ulId), stuMsg.pucDat, stuMsg.ucLen))
       ret = 0;
     else
       ret = -1;
@@ -651,7 +652,7 @@ void RuiyanRH2HandHardwareInterface::hand_call_back(CanMsg_t stuMsg, void * para
   // In this protocol, the reply frame ID is (servo_id + 0x100). By casting ulId to u8_t,
   // we keep only the low 8 bits, which effectively yields the original servo_id.
   // Example: ulId = 0x101 (257) -> id = 0x01 (servo 1).
-  u8_t id = stuMsg.ulId;
+  u8_t id = static_cast<u8_t>(stuMsg.ulId);
   (void)para;
 
 #if 1
